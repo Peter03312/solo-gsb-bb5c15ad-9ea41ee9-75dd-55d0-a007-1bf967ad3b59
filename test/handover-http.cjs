@@ -42,6 +42,7 @@ function startServer(keepDb = false) {
       for (const ext of ['', '-wal', '-shm']) {
         try { fs.unlinkSync(DB_PATH + ext); } catch (_) {}
       }
+      fs.rmSync(path.join(path.dirname(DB_PATH), path.basename(DB_PATH, path.extname(DB_PATH)) + '.yards'), { recursive: true, force: true });
     }
     server = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
       env: { ...process.env, PORT: String(PORT), DB_PATH, SEED_DEMO: '1' },

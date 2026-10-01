@@ -11,6 +11,8 @@ services:
       PORT: "3000"
       DB_PATH: "/data/interlock.db"
     volumes:
+      # 主库（yards 注册表 + sessions）与各站场业务库目录
+      # （原站场 interlock.yards/yard-1.db 及各命名演练副本）一并持久化
       - interlock-data:/data
     restart: unless-stopped
     healthcheck:

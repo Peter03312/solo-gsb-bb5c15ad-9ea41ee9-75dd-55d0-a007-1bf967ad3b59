@@ -1,5 +1,8 @@
--- 小型铁路站场进路联锁推演台 数据库结构
--- 全部业务状态保存在本地 SQLite，刷新/重启后恢复
+-- 小型铁路站场进路联锁推演台 —— 单个站场的业务表结构
+-- 原站场（yards.id=1）与每个命名演练副本各自拥有一份完全相同的业务库，
+-- 彼此独立的文件天然隔离：站场编辑、预检、开放、走行、区段/道岔调整、
+-- 等待、延时取消、封锁、交接单与重置都只作用于当前站场。
+-- 全部业务状态保存在本地 SQLite，刷新/重启后恢复。
 
 PRAGMA foreign_keys = ON;
 
@@ -74,14 +77,6 @@ CREATE TABLE IF NOT EXISTS route_switch_reqs (
   UNIQUE (route_id, switch_id)
 );
 
--- 值班员会话（姓名 + 登录令牌）
-CREATE TABLE IF NOT EXISTS sessions (
-  token       TEXT PRIMARY KEY,
-  role        TEXT NOT NULL CHECK (role IN ('admin','dispatcher')),
-  name        TEXT NOT NULL,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
 -- 已开放（锁闭中）的进路实例
 CREATE TABLE IF NOT EXISTS route_instances (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +98,7 @@ CREATE TABLE IF NOT EXISTS route_instances (
 
 -- 进路实例锁：开放时写入，逐段解锁/整条解除时删除对应行。
 -- 唯一约束保证同一区段/道岔同一时刻只被一条进路锁定（争用仲裁核心）。
+-- 每个站场各持一份本表，跨站场绝不争用、也绝不串锁。
 CREATE TABLE IF NOT EXISTS route_locks (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   instance_id INTEGER NOT NULL REFERENCES route_instances(id) ON DELETE CASCADE,
@@ -171,7 +167,7 @@ CREATE TABLE IF NOT EXISTS cancellation_applications (
               CHECK (status IN ('pending','released','aborted')),
   duration_seconds INTEGER NOT NULL,   -- 申请时的保护时长快照（秒，正整数）
   requested_at INTEGER NOT NULL,       -- 申请时刻（epoch 毫秒）
-  release_at   INTEGER NOT NULL,       -- 最早解除时刻（epoch 毫秒）
+  release_at   INTEGER NOT NULL,       -- 最早解除时刻（epoch 毫秒；副本沿用原时刻）
   processed_at INTEGER,                -- 进入终态的时刻（epoch 毫秒）
   end_reason  TEXT,                    -- 终止/解除说明
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -209,7 +205,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_blockade_unfinished_section
   ON blockade_applications(section_id) WHERE status IN ('pending','active');
 CREATE INDEX IF NOT EXISTS idx_blockade_status ON blockade_applications(status, id);
 
--- 交接班交接单：
+-- 交接班交接单（历史交接单只留在原站场，不随副本复制）：
 --  - 交班值班员生成时，在同一事务内快照六类状态：区段占用、道岔位置、
 --    开放进路（信号与走行进度）、等待申请、延时取消申请、未结束封锁，
 --    并记录生成时刻（epoch 毫秒）与交班人；

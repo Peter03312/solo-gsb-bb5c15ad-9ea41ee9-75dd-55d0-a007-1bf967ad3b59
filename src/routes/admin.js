@@ -1,13 +1,14 @@
 'use strict';
 
 const express = require('express');
-const { getDb } = require('../db');
+const { getDb, getMainDb } = require('../db');
 const { requireAuth } = require('../auth');
 const { getState, triggerWaitingSweep } = require('../interlocking');
 const waiting = require('../waiting');
 const cancellation = require('../cancellation');
 const blockade = require('../blockade');
 const handover = require('../handover');
+const yards = require('../yards');
 
 const router = express.Router();
 router.use(requireAuth('admin'));
@@ -36,8 +37,27 @@ function wrap(fn) {
 /* --------------------------------- 状态 --------------------------------- */
 
 router.get('/state', (req, res) => {
-  res.json({ ok: true, state: getState() });
+  res.json({ ok: true, state: getState(), yard: req.yard });
 });
+
+/* ----------------------------- 命名演练副本 ----------------------------- */
+
+// 站场/副本列表（管理员视角；含当前选择）
+router.get('/yards', (req, res) => {
+  res.json({ ok: true, yards: yards.listYards(), currentYardId: req.yard.id });
+});
+
+// 从原站场创建命名演练副本（同事务复制定义/状态/锁与事件进度/未兑现等待/
+// 未完结延时取消与临时封锁；历史交接单留在原站场）。同名 409 拒绝。
+// 创建操作始终以原站场为来源，与会话当前选择的站场无关。
+router.post('/yards', wrap((req, res) => {
+  const result = yards.createCopyFromOriginal((req.body || {}).name, req.session.name);
+  res.status(201).json({
+    ok: true,
+    yard: result.yard,                 // 副本编号（yard.id）与状态 status
+    detail: result.detail
+  });
+}));
 
 /* ----------------------------- 延时取消设置 ----------------------------- */
 

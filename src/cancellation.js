@@ -268,22 +268,56 @@ function processDue(trigger = 'timer') {
 /* ------------------------------ 定时与重启 ------------------------------ */
 
 /**
+ * 扫描一次全部站场：在各站场自己的上下文/事务内按 release_at 复核。
+ * 副本复制来的延时取消沿用原 release_at（不重新计时）；到期则按该副本
+ * 自身状态核验解除或终止，跨站场互不影响、不会重复兑现。
+ */
+function processDueAllYards(trigger) {
+  const { withYard } = require('./db');
+  let yardsList;
+  try {
+    yardsList = require('./yards').listYards();
+  } catch (e) {
+    yardsList = null;
+  }
+  if (!yardsList) {
+    // yards 注册表尚不可用（脚本直调场景）：直接处理当前连接
+    return processDue(trigger);
+  }
+  const released = [];
+  const aborted = [];
+  for (const y of yardsList) {
+    try {
+      const r = withYard(y.id, () => processDue(trigger + `:yard${y.id}`));
+      for (const id of r.released) released.push({ yard: y.id, id });
+      for (const id of r.aborted) aborted.push({ yard: y.id, id });
+    } catch (e) {
+      console.error(`[cancel] 站场 ${y.id} 定时扫描失败:`, e);
+    }
+  }
+  return { released, aborted };
+}
+
+/**
  * 启动到期扫描定时器（服务启动时调用一次）。
- * 同时立即扫描一次：服务重启期间可能已有申请到期，启动即处理。
+ * 同时立即扫描一次：服务重启期间可能已有申请到期，启动即处理；
+ * 按各站场分别复核，复制来的副本不重新计时。
  */
 function startScheduler() {
   stopScheduler();
   try {
-    const r = processDue('server_start');
-    if (r.released.length || r.aborted.length) {
-      console.log(`[startup] 重启后处理延时取消申请：解除 #${r.released.join('、#') || '无'}，` +
-        `终止 #${r.aborted.join('、#') || '无'}`);
+    const r = processDueAllYards('server_start');
+    const rel = r.released.map((x) => `#${x.id}(站场${x.yard})`);
+    const abr = r.aborted.map((x) => `#${x.id}(站场${x.yard})`);
+    if (rel.length || abr.length) {
+      console.log(`[startup] 重启后处理延时取消申请：解除 ${rel.join('、') || '无'}，` +
+        `终止 ${abr.join('、') || '无'}`);
     }
   } catch (e) {
     console.error('[startup] 延时取消到期扫描失败:', e);
   }
   timer = setInterval(() => {
-    try { processDue('timer'); } catch (e) { console.error('[cancel] 定时扫描失败:', e); }
+    try { processDueAllYards('timer'); } catch (e) { console.error('[cancel] 定时扫描失败:', e); }
   }, 500);
 }
 

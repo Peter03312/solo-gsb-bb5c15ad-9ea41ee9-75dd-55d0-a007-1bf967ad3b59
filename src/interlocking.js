@@ -564,6 +564,7 @@ function getState() {
   return {
     serverTime: new Date().toISOString(),
     serverTimeMs: Date.now(),
+    yard: currentYardInfo(),
     sections,
     switches,
     signals,
@@ -582,6 +583,20 @@ function getState() {
     // 交接班交接单（最近 200 张；待签收在前，刷新/重启后仍可查询与签收）
     handovers: require('./handover').listHandovers()
   };
+}
+
+/** 当前请求上下文的站场信息；脚本/测试等无上下文场景返回 null */
+function currentYardInfo() {
+  const { currentYardId } = require('./db');
+  const id = currentYardId();
+  try {
+    const y = require('./yards').getYard(id);
+    if (!y) return null;
+    return { id: y.id, name: y.name, isOriginal: y.isOriginal, kind: y.kind };
+  } catch (_) {
+    // yards 表不可用等极端场景不阻塞状态读取
+    return { id, name: id === 1 ? '原站场' : `#${id}`, isOriginal: id === 1, kind: id === 1 ? 'original' : 'copy' };
+  }
 }
 
 /**

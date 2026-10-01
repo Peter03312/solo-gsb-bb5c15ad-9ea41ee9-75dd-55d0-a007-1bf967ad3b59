@@ -3,7 +3,8 @@
 const path = require('path');
 const express = require('express');
 
-const { getDb } = require('./db');
+const { getMainDb, withYard } = require('./db');
+const yards = require('./yards');
 const { seedDemo } = require('./seed');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
@@ -15,33 +16,45 @@ const blockade = require('./blockade');
 
 const PORT = Number(process.env.PORT || 3000);
 
-// 启动即建表；首次且库为空时写入示例数据（SEED_DEMO=0 可关闭）
-const db = getDb();
-if (process.env.SEED_DEMO !== '0') {
-  const seeded = seedDemo(db);
-  if (seeded) console.log('[startup] 已初始化示例站场（R1/R2/R3）');
+// 打开主库（yards 注册表 + sessions；旧版业务库在 ensureRegistry 时迁移）
+getMainDb();
+const original = yards.ensureRegistry();
+console.log(`[startup] 当前站场注册：${yards.listYards()
+  .map((y) => `#${y.id} ${y.name}${y.isOriginal ? '（原站场）' : ''}`).join('；')}`);
+
+// 原站场首次且库为空时写入示例数据（SEED_DEMO=0 可关闭）
+withYard(original.id, () => {
+  if (process.env.SEED_DEMO !== '0') {
+    const seeded = seedDemo(require('./db').getYardConnection(original.id));
+    if (seeded) console.log('[startup] 已初始化示例站场（R1/R2/R3）');
+  }
+});
+
+// 服务重启后按各站场分别复核：待生效封锁转已生效、等待申请自动兑现、
+// 延时取消按原 release_at 复核（副本不重新计时、不重复兑现）。
+for (const y of yards.listYards()) {
+  withYard(y.id, () => {
+    try {
+      const activated = blockade.refreshBlockadeStates('server_start');
+      if (activated.length) {
+        console.log(`[startup] 站场 #${y.id} ${y.name}：封锁申请转为已生效 #${activated.join('、#')}`);
+      }
+    } catch (e) {
+      console.error(`[startup] 站场 ${y.id} 封锁状态复核失败:`, e);
+    }
+    try {
+      const r = waiting.sweepFulfillments('server_start');
+      if (r.fulfilled.length) {
+        console.log(`[startup] 站场 #${y.id} ${y.name}：重启后自动兑现等待申请 #${r.fulfilled.join('、#')}`);
+      }
+    } catch (e) {
+      console.error(`[startup] 站场 ${y.id} 等待申请兑现扫描失败:`, e);
+    }
+  });
 }
 
-// 服务重启后复核待生效的临时封锁（区段空闲且无进路锁的转为已生效），
-// 随后自动尝试兑现仍在等待的申请（状态全部来自 SQLite，重启可恢复）
-try {
-  const activated = blockade.refreshBlockadeStates('server_start');
-  if (activated.length) {
-    console.log(`[startup] 重启后封锁申请转为已生效：#${activated.join('、#')}`);
-  }
-} catch (e) {
-  console.error('[startup] 封锁状态复核失败:', e);
-}
-try {
-  const r = waiting.sweepFulfillments('server_start');
-  if (r.fulfilled.length) {
-    console.log(`[startup] 重启后自动兑现等待申请 #${r.fulfilled.join('、#')}`);
-  }
-} catch (e) {
-  console.error('[startup] 等待申请兑现扫描失败:', e);
-}
-
-// 启动延时取消到期处理：立即扫描一次（处理重启期间已到期的申请），之后每 0.5s 扫描
+// 启动延时取消到期处理：立即扫描一次（处理重启期间已到期的申请，逐站场），
+// 之后每 0.5s 全站场扫描
 cancellation.startScheduler();
 
 const app = express();
@@ -62,9 +75,9 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   if (err instanceof InterlockError) {
     return res.status(err.status).json({ ok: false, error: err.message, code: err.code, ...err.extra });
   }
-  // 管理员路由里手动抛出的带 status 错误
+  // 管理员/站场路由里手动抛出的带 status 错误
   if (err && err.status) {
-    return res.status(err.status).json({ ok: false, error: err.message });
+    return res.status(err.status).json({ ok: false, error: err.message, code: err.code });
   }
   console.error('[error]', err);
   res.status(500).json({ ok: false, error: '服务器内部错误' });

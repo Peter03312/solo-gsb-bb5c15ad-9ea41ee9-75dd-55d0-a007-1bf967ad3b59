@@ -1,18 +1,39 @@
 'use strict';
 
-// 通用前端工具：API 调用、令牌、Toast、SVG 构造
+// 通用前端工具：API 调用、令牌、Toast、SVG 构造、当前站场（原站场/演练副本）
 const App = (() => {
   function token() { return localStorage.getItem('token'); }
   function setSession(data) {
     localStorage.setItem('token', data.token);
     localStorage.setItem('role', data.role);
     localStorage.setItem('name', data.name);
+    // 登录响应附带的当前站场（新登录默认原站场）
+    if (data.yardId != null) {
+      localStorage.setItem('yardId', String(data.yardId));
+      localStorage.setItem('yardName', data.yardName || '原站场');
+    }
   }
   function clearSession() {
     ['token', 'role', 'name'].forEach((k) => localStorage.removeItem(k));
   }
   function role() { return localStorage.getItem('role'); }
   function name() { return localStorage.getItem('name'); }
+
+  // 当前站场（按会话在服务端保存；本地仅缓存名称用于即时显示）
+  function yardId() {
+    const v = Number(localStorage.getItem('yardId'));
+    return Number.isInteger(v) && v > 0 ? v : 1;
+  }
+  function yardName() { return localStorage.getItem('yardName') || '原站场'; }
+  function setYard(id, name) {
+    localStorage.setItem('yardId', String(id));
+    localStorage.setItem('yardName', name || '原站场');
+  }
+  /** 切换当前会话站场；成功后刷新页面以重新加载该站场全部数据 */
+  async function chooseYard(id) {
+    await api('/api/auth/yard', { method: 'PUT', body: JSON.stringify({ yardId: id }) });
+    location.reload();
+  }
 
   async function api(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -80,8 +101,115 @@ const App = (() => {
   const SIG_TEXT = { green: '绿灯(允许)', red: '红灯(停车)' };
   const POS_TEXT = { N: 'N 定位/直股', R: 'R 反位/弯股' };
 
+  /**
+   * 用 /api/state 或 /api/admin/state 返回的 yard 同步本地缓存的当前站场名。
+   * 由两个工作台每次加载状态后调用。
+   */
+  function syncYard(yard) {
+    if (yard && yard.id != null) setYard(yard.id, yard.name);
+  }
+
+  /**
+   * 渲染顶栏"当前站场"选择条（挂到 #yardBar 容器）。
+   * 每个登录会话都可选择当前站场；未选择时使用原站场。
+   * 管理员另显示"＋ 创建演练副本"。
+   */
+  async function renderYardBar(activeContainer) {
+    const host = document.getElementById('yardBar');
+    if (!host) return;
+    host.innerHTML = '';
+    let yards = [];
+    try {
+      const data = await api('/api/auth/yards');
+      yards = data.yards || [];
+    } catch (e) { return; } // 401 等由全局逻辑跳转登录
+
+    const label = html('span', { class: 'yard-label' }, '当前站场：');
+    host.appendChild(label);
+    const sel = html('select', { class: 'yard-select', title: '选择当前站场（原站场或命名演练副本）' });
+    for (const y of yards) {
+      const text = y.isOriginal ? '① 原站场' : `🧪 ${y.name}`;
+      const o = html('option', { value: String(y.id) }, text);
+      if (y.id === yardId()) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => {
+      const id = Number(sel.value);
+      if (id !== yardId()) chooseYard(id).catch((e) => toast(e.message, 'err'));
+    });
+    host.appendChild(sel);
+
+    const cur = yards.find((y) => y.id === yardId());
+    if (cur && !cur.isOriginal) {
+      host.appendChild(html('span', { class: 'yard-badge' }, '演练副本'));
+    }
+
+    if (role() === 'admin') {
+      const createBtn = html('button', { class: 'ghost small', style: 'margin-left:10px;' }, '＋ 从原站场创建演练副本');
+      createBtn.addEventListener('click', () => openCreateYardModal());
+      host.appendChild(createBtn);
+    }
+    host.appendChild(html('span', { class: 'muted', style: 'margin-left:10px;font-size:12px;' },
+      '所有操作（编辑/排路/走行/等待/取消/封锁/交接/重置）仅作用于当前站场'));
+  }
+
+  /** 管理员创建命名演练副本弹窗 */
+  function openCreateYardModal() {
+    const nameIn = html('input', { type: 'text', maxlength: '30',
+      placeholder: '副本名称，如 国庆演练A组（同名拒绝）', style: 'width:100%;' });
+    const content = html('div', {});
+    content.appendChild(html('div', { class: 'hint', style: 'margin-bottom:8px;' },
+      '将在同一事务内复制原站场的站场定义、区段与道岔状态、开放进路的锁与事件进度、' +
+      '未兑现等待申请、未完结延时取消（沿用原到期时刻）及未结束临时封锁；' +
+      '历史交接单留在原站场。'));
+    const f = html('div', { class: 'fld' });
+    f.appendChild(html('label', {}, '副本名称'));
+    f.appendChild(nameIn);
+    content.appendChild(f);
+
+    const mask = html('div', { class: 'modal-mask' });
+    const box = html('div', { class: 'modal' });
+    box.appendChild(html('h3', {}, '创建命名演练副本'));
+    box.appendChild(content);
+    const actions = html('div', { class: 'actions' });
+    const cancel = html('button', { class: 'ghost' }, '取消');
+    const ok = html('button', { class: 'primary' }, '创建副本');
+    function close() { mask.remove(); }
+    cancel.addEventListener('click', close);
+    mask.addEventListener('click', (e) => { if (e.target === mask) close(); });
+    ok.addEventListener('click', async () => {
+      const name = nameIn.value.trim();
+      if (!name) return toast('请填写副本名称', 'err');
+      ok.disabled = true;
+      try {
+        const data = await api('/api/admin/yards', {
+          method: 'POST', body: JSON.stringify({ name })
+        });
+        const c = data.detail.copied;
+        toast(`副本 #${data.yard.id}「${data.yard.name}」已创建：` +
+          `开放进路 ${c.openInstances}、等待 ${c.waiting}、延时取消 ${c.pendingCancellations}、` +
+          `封锁 ${c.unfinishedBlockades}；是否立即切换到该副本？`, 'ok', 6000);
+        close();
+        if (confirm(`副本「${data.yard.name}」已创建。是否立即切换到该副本？`)) {
+          await chooseYard(data.yard.id);
+        } else {
+          renderYardBar();
+        }
+      } catch (e) {
+        ok.disabled = false;
+        toast(e.message, 'err', 6000);
+      }
+    });
+    actions.appendChild(cancel); actions.appendChild(ok);
+    box.appendChild(actions);
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+    setTimeout(() => nameIn.focus(), 0);
+  }
+
   return {
     api, el, html, toast, token, setSession, clearSession, role, name,
+    yardId, yardName, setYard, chooseYard, syncYard, renderYardBar,
     OCC_TEXT, SIG_TEXT, POS_TEXT
   };
 })();

@@ -45,6 +45,35 @@ header.topbar button {
 }
 header.topbar button:hover { background: rgba(255, 255, 255, .28); }
 
+/* 当前站场选择条（原站场/命名演练副本） */
+.yard-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  opacity: .95;
+}
+.yard-bar .yard-label { white-space: nowrap; }
+.yard-bar .yard-select {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, .4);
+  background: rgba(255, 255, 255, .92);
+  color: #143b7a;
+  font-weight: 600;
+  padding: 4px 8px;
+  max-width: 180px;
+}
+.yard-bar .yard-badge {
+  background: #e0a800;
+  color: #3a2c00;
+  border-radius: 10px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.yard-bar button.small { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+
 .layout {
   display: grid;
   grid-template-columns: 1fr 380px;

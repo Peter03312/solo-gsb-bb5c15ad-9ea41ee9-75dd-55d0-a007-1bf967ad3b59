@@ -22,9 +22,9 @@ function wrap(fn) {
   };
 }
 
-// 全量状态（刷新页面后恢复已提交状态）
+// 全量状态（刷新页面后恢复已提交状态；仅当前会话所选站场的数据）
 router.get('/state', (req, res) => {
-  res.json({ ok: true, state: inter.getState(), me: req.session.name });
+  res.json({ ok: true, state: inter.getState(), me: req.session.name, yard: req.yard });
 });
 
 // 预检：不产生任何锁

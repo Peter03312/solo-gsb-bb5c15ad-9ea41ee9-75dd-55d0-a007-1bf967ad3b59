@@ -15,6 +15,7 @@ const { spawn } = require('child_process');
 
 const PORT = process.env.TEST_PORT || 3918;
 const DB_PATH = process.env.SMOKE_DB_CANCEL || path.join(__dirname, '..', 'data', 'cancellation-test.db');
+const YARD_DB_PATH = path.join(path.dirname(DB_PATH), path.basename(DB_PATH, path.extname(DB_PATH)) + '.yards', 'yard-1.db');
 const BASE = `http://127.0.0.1:${PORT}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,6 +63,7 @@ function startServer(keepDb = false) {
       for (const ext of ['', '-wal', '-shm']) {
         try { fs.unlinkSync(DB_PATH + ext); } catch (_) {}
       }
+      fs.rmSync(path.join(path.dirname(DB_PATH), path.basename(DB_PATH, path.extname(DB_PATH)) + '.yards'), { recursive: true, force: true });
     }
     server = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
       env: { ...process.env, PORT: String(PORT), DB_PATH, SEED_DEMO: '1' },
@@ -338,7 +340,7 @@ async function main() {
   await stopServer();
   await new Promise((resolve) => {
     const Database = require('better-sqlite3');
-    const d = new Database(DB_PATH);
+    const d = new Database(YARD_DB_PATH);
     d.prepare(`UPDATE cancellation_applications SET release_at=? WHERE id=?`)
       .run(Date.now() - 1000, c5);
     d.close();

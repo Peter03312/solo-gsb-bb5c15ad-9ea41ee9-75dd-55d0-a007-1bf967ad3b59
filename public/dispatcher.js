@@ -11,7 +11,7 @@ let clockOffsetMs = 0;      // 服务器时钟 - 本地时钟（倒计时按服�
 
 const svg = document.getElementById('yard');
 const side = document.getElementById('side');
-const { el, html, api, toast, OCC_TEXT, SIG_TEXT, POS_TEXT } = App;
+const { el, html, api, toast, OCC_TEXT, SIG_TEXT, POS_TEXT, syncYard, renderYardBar } = App;
 
 /* ------------------------------- 初始化 ------------------------------- */
 
@@ -23,6 +23,7 @@ async function boot() {
     location.href = '/index.html';
     return;
   }
+  renderYardBar();
   await load(true);
   pollTimer = setInterval(() => load(false), 2000);
 }
@@ -37,6 +38,7 @@ async function load(manual) {
   try {
     const data = await api('/api/state');
     STATE = data.state;
+    syncYard(data.yard || (STATE && STATE.yard));
     // 服务器时钟与本地时钟偏差，倒计时据此校准（页面常开也不会漂）
     clockOffsetMs = (Date.parse(STATE.serverTime) || Date.now()) - (STATE.serverTimeMs || Date.now());
     renderYard();
