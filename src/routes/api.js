@@ -7,6 +7,7 @@ const waiting = require('../waiting');
 const cancellation = require('../cancellation');
 const blockade = require('../blockade');
 const handover = require('../handover');
+const yards = require('../yards');
 const { InterlockError } = require('../interlocking');
 
 const router = express.Router();
@@ -22,9 +23,14 @@ function wrap(fn) {
   };
 }
 
-// 全量状态（刷新页面后恢复已提交状态）
+// 全量状态（刷新页面后恢复已提交状态；yard 为该会话当前站场）
 router.get('/state', (req, res) => {
-  res.json({ ok: true, state: inter.getState(), me: req.session.name });
+  res.json({
+    ok: true,
+    state: inter.getState(),
+    me: req.session.name,
+    yard: yards.getYard(Number(req.session.current_yard_id) || 0) || yards.originalYard()
+  });
 });
 
 // 预检：不产生任何锁

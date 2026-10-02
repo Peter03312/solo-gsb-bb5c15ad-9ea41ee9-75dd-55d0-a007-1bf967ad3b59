@@ -19,6 +19,9 @@ async function boot() {
     location.href = '/index.html';
     return;
   }
+  await App.loadSession();
+  document.querySelector('.topbar').insertBefore(
+    App.yardSwitcher(() => load(true)), document.getElementById('meName'));
   await load(true);
 }
 
@@ -445,9 +448,91 @@ function setTool(t) {
   renderSide();
 }
 
+/* ============================== 演练副本 ============================== */
+
+/**
+ * 当前站场横幅 + 演练副本管理：
+ *  - 始终展示当前所在站场（原站场/副本编号与名称），页面数据即该站场数据；
+ *  - 仅在【原站场】可创建命名副本（复制当前盘面，同一事务完成）；
+ *  - 副本的编辑/重置等操作只作用于该副本，历史交接单留在原站场。
+ */
+function renderYardPanel() {
+  const box = html('div', {});
+  const y = App.currentYard();
+  box.appendChild(html('div', { class: 'section-title' }, '演练站场（原站场 / 副本）'));
+  const banner = html('div', { class: `yard-banner ${!y || y.isOriginal ? 'orig' : 'copy'}` });
+  banner.appendChild(html('b', {}, !y || y.isOriginal ? '📍 当前：原站场 #0' : `🧪 当前副本：${y.name}（#${y.id}）`));
+  banner.appendChild(html('span', { class: 'hint' },
+    !y || y.isOriginal
+      ? '默认站场。可在下方把当前盘面复制为命名演练副本。'
+      : '复制自原站场，与原站场及其他副本独立运行；切换站场用顶栏下拉框。'));
+  box.appendChild(banner);
+
+  // 副本列表
+  const yards = App.allYards().filter((q) => !q.isOriginal);
+  if (yards.length) {
+    const list = html('div', { class: 'entity-list', style: 'margin:6px 0;' });
+    for (const q of yards) {
+      const ent = html('div', { class: 'ent' });
+      ent.appendChild(html('span', { class: 'grow' }, `#${q.id} ${q.name}`));
+      const useBtn = html('button', { class: 'ghost small' }, y && q.id === y.id ? '使用中' : '切换');
+      if (y && q.id === y.id) useBtn.disabled = true;
+      useBtn.addEventListener('click', async () => {
+        try {
+          const data = await api('/api/session/yard', { method: 'PUT', body: JSON.stringify({ yardId: q.id }) });
+          App.session.yard = data.yard; App.session.yards = data.yards;
+          await load(true);
+          toast(`已切换至演练副本“${q.name}”`, 'ok');
+        } catch (e) { toast(e.message, 'err', 5000); }
+      });
+      ent.appendChild(useBtn);
+      list.appendChild(ent);
+    }
+    box.appendChild(list);
+  } else {
+    box.appendChild(html('div', { class: 'hint', style: 'margin:4px 0 8px;' }, '尚无演练副本。'));
+  }
+
+  // 创建副本（仅原站场）
+  if (!y || y.isOriginal) {
+    const row = html('div', { class: 'row' });
+    const nameIn = html('input', { type: 'text', maxlength: '30', placeholder: '副本名称，如：10月应急演练',
+      style: 'flex:1;min-width:0;' });
+    const createBtn = html('button', { class: 'primary small' }, '从当前盘面创建副本');
+    row.appendChild(nameIn);
+    row.appendChild(createBtn);
+    box.appendChild(row);
+    box.appendChild(html('div', { class: 'hint', style: 'margin-top:4px;' },
+      '同一事务复制站场定义、区段/道岔状态、开放进路的锁与事件进度、未兑现等待、' +
+      '未完结延时取消（沿用原到期时刻）与临时封锁；同名拒绝；历史交接单留在原站场。'));
+    createBtn.addEventListener('click', async () => {
+      const name = nameIn.value.trim();
+      if (!name) return toast('请填写副本名称', 'err');
+      try {
+        const data = await api('/api/admin/yards', { method: 'POST', body: JSON.stringify({ name }) });
+        await App.loadSession();
+        toast(`副本“${data.yard.name}”已创建（编号 #${data.yard.id}），可用顶栏切换`, 'ok', 4200);
+        await load(true);
+      } catch (e) { toast(e.message, 'err', 6000); }
+    });
+  } else {
+    const back = html('div', { class: 'row', style: 'margin-top:6px;' });
+    const b = html('button', { class: 'ghost small' }, '← 切回原站场');
+    b.addEventListener('click', async () => {
+      const data = await api('/api/session/yard', { method: 'PUT', body: JSON.stringify({ yardId: 0 }) });
+      App.session.yard = data.yard; App.session.yards = data.yards;
+      await load(true);
+    });
+    back.appendChild(b);
+    box.appendChild(back);
+  }
+  return box;
+}
+
 function renderSide() {
   side.innerHTML = '';
 
+  side.appendChild(renderYardPanel());
   const locked = STATE.openInstances.length > 0;
   if (locked) {
     const warn = html('div', { class: 'reasons' });

@@ -328,3 +328,36 @@ table.grid th { background: #f5f7fa; font-weight: 600; }
 
 .kv { font-size: 12.5px; line-height: 1.9; }
 .kv b { font-weight: 600; }
+
+/* ----------------------------- 演练副本/站场切换 ----------------------------- */
+.yard-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.yard-switcher .yard-label { opacity: .85; }
+.yard-switcher .yard-select {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, .35);
+  background: rgba(255, 255, 255, .15);
+  color: #fff;
+  padding: 4px 8px;
+  max-width: 230px;
+}
+.yard-switcher .yard-select option { color: #1f2937; }
+
+.yard-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+}
+.yard-banner.orig { background: #eef4ff; border-color: #c6d8ff; }
+.yard-banner.copy { background: #fff4e6; border-color: #ffd8a8; }
+.yard-banner .hint { white-space: normal; line-height: 1.4; }
+
+button.primary.small, button.ghost.small { padding: 5px 10px; font-size: 13px; }

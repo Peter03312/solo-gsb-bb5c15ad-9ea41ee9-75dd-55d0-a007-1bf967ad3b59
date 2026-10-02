@@ -9,6 +9,22 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 
+-- 演练副本（命名站场副本）登记表：仅存于目录库（即原站场库）。
+--  - 管理员只能从【原站场】(source_id=0) 创建命名副本；副本各自独立 SQLite 文件；
+--  - 每个登录会话可通过 sessions.current_yard_id 选择当前站场，0/NULL=原站场；
+--  - 副本与原站场独立运行：拓扑、状态、进路实例/锁/事件、等待、取消、封锁、
+--    交接单全部落在各自库文件，锁闭与等待顺位不串用；
+--  - 历史交接单不复制，仅留在原站场。
+CREATE TABLE IF NOT EXISTS yards (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE,        -- 副本名（同名拒绝）
+  source_id  INTEGER NOT NULL DEFAULT 0,  -- 来源：0=原站场（目前只允许从原站场复制）
+  status     TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready')),
+  file_path  TEXT NOT NULL,               -- 副本独立 SQLite 文件绝对路径
+  created_by TEXT,                        -- 创建人（管理员）
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- 轨道区段
 CREATE TABLE IF NOT EXISTS sections (
   id     TEXT PRIMARY KEY,            -- 区段编号，如 1、3DG
@@ -74,11 +90,13 @@ CREATE TABLE IF NOT EXISTS route_switch_reqs (
   UNIQUE (route_id, switch_id)
 );
 
--- 值班员会话（姓名 + 登录令牌）
+-- 值班员会话（姓名 + 登录令牌）；current_yard_id 为该会话当前选择的站场：
+-- 0/NULL=原站场；其余值为 yards.id（演练副本）。会话表仅存于目录库。
 CREATE TABLE IF NOT EXISTS sessions (
   token       TEXT PRIMARY KEY,
   role        TEXT NOT NULL CHECK (role IN ('admin','dispatcher')),
   name        TEXT NOT NULL,
+  current_yard_id INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

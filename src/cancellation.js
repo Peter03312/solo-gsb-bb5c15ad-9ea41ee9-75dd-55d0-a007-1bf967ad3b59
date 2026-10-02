@@ -32,8 +32,6 @@ const DEFAULT_DURATION_SECONDS = 60;
 const MAX_DURATION_SECONDS = 7 * 24 * 3600; // 设置上限 7 天
 const META_KEY = 'cancel_protection_seconds';
 
-let timer = null;
-
 /* ------------------------------ 保护时长设置 ------------------------------ */
 
 /** 当前保护时长（正整数秒）。仅读 meta，未设置时取默认值。 */
@@ -268,27 +266,17 @@ function processDue(trigger = 'timer') {
 /* ------------------------------ 定时与重启 ------------------------------ */
 
 /**
- * 启动到期扫描定时器（服务启动时调用一次）。
- * 同时立即扫描一次：服务重启期间可能已有申请到期，启动即处理。
+ * 到期扫描不再由本模块自起单一定时器：多个站场（原站场 + 演练副本）各自独立
+ * 运行，由 src/server.js 的站场调度器在每个站场上下文内周期性调用
+ * processDue（启动时也立即调用一次）。复制的申请沿用原 release_at，因此
+ * 重启/复制后扫描只会按各站场原到期时刻核对：不重新计时、已处理过的不重复兑现。
  */
 function startScheduler() {
-  stopScheduler();
-  try {
-    const r = processDue('server_start');
-    if (r.released.length || r.aborted.length) {
-      console.log(`[startup] 重启后处理延时取消申请：解除 #${r.released.join('、#') || '无'}，` +
-        `终止 #${r.aborted.join('、#') || '无'}`);
-    }
-  } catch (e) {
-    console.error('[startup] 延时取消到期扫描失败:', e);
-  }
-  timer = setInterval(() => {
-    try { processDue('timer'); } catch (e) { console.error('[cancel] 定时扫描失败:', e); }
-  }, 500);
+  return processDue('server_start');
 }
 
 function stopScheduler() {
-  if (timer) { clearInterval(timer); timer = null; }
+  // 兼容旧调用方：实际定时器在 server.js 管理
 }
 
 /* --------------------------- 管理员重置：一并清除 --------------------------- */

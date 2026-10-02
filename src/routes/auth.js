@@ -2,11 +2,13 @@
 
 const express = require('express');
 const { adminPassword, createSession, getSession, destroySession, tokenOf } = require('../auth');
+const { runInYard } = require('../db');
 const waiting = require('../waiting');
+const yards = require('../yards');
 
 const router = express.Router();
 
-// 值班员登录：输入姓名即可
+// 值班员登录：输入姓名即可（新会话默认使用原站场，current_yard_id=0）
 router.post('/login/dispatcher', (req, res) => {
   const name = String(req.body.name || '').trim();
   if (name.length < 1 || name.length > 30) {
@@ -31,10 +33,15 @@ router.post('/login/admin', (req, res) => {
 router.post('/logout', (req, res) => {
   const token = tokenOf(req);
   const session = getSession(token);
-  // 值班员退出：撤销其全部未兑现等待申请（并触发后项兑现）
+  // 值班员退出：在每个站场（原站场 + 全部副本）分别撤销其未兑现等待申请。
+  // 各站场独立运行，撤销与后续兑现扫描必须落到对应库。
   if (session && session.role === 'dispatcher') {
-    try { waiting.cancelByApplicant(session.name, '申请人退出登录，等待申请撤销'); }
-    catch (e) { console.error('[waiting] 退出撤销失败:', e); }
+    for (const y of yards.listYards()) {
+      try {
+        runInYard(y.id, () =>
+          waiting.cancelByApplicant(session.name, '申请人退出登录，等待申请撤销'));
+      } catch (e) { console.error(`[waiting] 退出撤销失败（站场 ${y.id}）:`, e); }
+    }
   }
   destroySession(token);
   res.clearCookie('sid');

@@ -80,8 +80,61 @@ const App = (() => {
   const SIG_TEXT = { green: '绿灯(允许)', red: '红灯(停车)' };
   const POS_TEXT = { N: 'N 定位/直股', R: 'R 反位/弯股' };
 
+  /* ------------------------- 当前站场（演练副本） ------------------------- */
+
+  // 会话当前站场（启动时从后端拉取并缓存；选择后刷新）
+  let sessionInfo = null;
+
+  async function loadSession() {
+    sessionInfo = await api('/api/session');
+    return sessionInfo;
+  }
+  function currentYard() { return sessionInfo ? sessionInfo.yard : null; }
+  function allYards() { return sessionInfo ? sessionInfo.yards : []; }
+
+  /**
+   * 顶栏站场切换条：显示当前站场，下拉选择原站场/演练副本。
+   * @param {Function} [onChanged] 切换成功后的回调（通常触发页面重新加载数据）
+   */
+  function yardSwitcher(onChanged) {
+    const box = html('span', { class: 'yard-switcher' });
+    const label = html('span', { class: 'yard-label' }, '当前站场：');
+    const sel = html('select', { class: 'yard-select', title: '选择当前演练站场（副本与原站场独立运行）' });
+    box.appendChild(label);
+    box.appendChild(sel);
+    function paint(yards, currentId) {
+      sel.innerHTML = '';
+      for (const y of yards) {
+        const opt = document.createElement('option');
+        opt.value = String(y.id);
+        opt.textContent = y.isOriginal ? '原站场' : `演练副本：${y.name}（#${y.id}）`;
+        if (y.id === currentId) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+    if (sessionInfo) paint(sessionInfo.yards, sessionInfo.yard.id);
+    sel.addEventListener('change', async () => {
+      try {
+        const data = await api('/api/session/yard', {
+          method: 'PUT', body: JSON.stringify({ yardId: Number(sel.value) })
+        });
+        sessionInfo = { yard: data.yard, yards: data.yards, me: sessionInfo ? sessionInfo.me : null };
+        paint(data.yards, data.yard.id);
+        toast(`已切换至${data.yard.isOriginal ? '原站场' : `演练副本“${data.yard.name}”`}`, 'ok', 2600);
+        if (onChanged) await onChanged(data.yard);
+      } catch (e) {
+        if (sessionInfo) sel.value = String(sessionInfo.yard.id);
+        toast(e.message, 'err', 5000);
+      }
+    });
+    box._refresh = () => { if (sessionInfo) paint(sessionInfo.yards, sessionInfo.yard.id); };
+    return box;
+  }
+
   return {
     api, el, html, toast, token, setSession, clearSession, role, name,
-    OCC_TEXT, SIG_TEXT, POS_TEXT
+    OCC_TEXT, SIG_TEXT, POS_TEXT,
+    loadSession, currentYard, allYards, yardSwitcher,
+    get session() { return sessionInfo; }
   };
 })();

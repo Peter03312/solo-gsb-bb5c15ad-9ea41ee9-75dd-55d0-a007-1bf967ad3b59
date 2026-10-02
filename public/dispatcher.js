@@ -23,6 +23,9 @@ async function boot() {
     location.href = '/index.html';
     return;
   }
+  await App.loadSession();
+  const topbar = document.querySelector('.topbar');
+  topbar.insertBefore(App.yardSwitcher(() => load(true)), document.getElementById('pollState'));
   await load(true);
   pollTimer = setInterval(() => load(false), 2000);
 }
@@ -221,6 +224,7 @@ function renderSide() {
   side.innerHTML = '';
   if (!STATE) return;
 
+  side.appendChild(renderYardBanner());
   side.appendChild(renderRoutePicker());
   if (currentRouteObj()) {
     side.appendChild(renderRouteOps());
@@ -232,6 +236,18 @@ function renderSide() {
   side.appendChild(renderSwitchPanel());
   side.appendChild(renderSectionPanel());
   side.appendChild(renderInstances());
+}
+
+function renderYardBanner() {
+  const y = App.currentYard();
+  if (!y) return html('div', {});
+  const box = html('div', { class: `yard-banner ${y.isOriginal ? 'orig' : 'copy'}` });
+  box.appendChild(html('b', {}, y.isOriginal ? '📍 原站场' : `🧪 演练副本：${y.name}`));
+  box.appendChild(html('span', { class: 'hint' },
+    y.isOriginal
+      ? '编号 #0（默认）。副本与原站场独立运行：开放/走行/等待/取消/封锁/交接单互不影响。'
+      : `编号 #${y.id}，复制自原站场。本页所有操作只作用于该副本；历史交接单留在原站场。`));
+  return box;
 }
 
 /* ------------------------------- 临时封锁 ------------------------------- */
